@@ -1,0 +1,31 @@
+{
+  "name": "ejmn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "tsx --test tests/**/*.test.ts",
+    "test:unit": "tsx --test tests/unit/**/*.test.ts",
+    "test:integration": "tsx --test tests/integration/**/*.test.ts",
+    "test:e2e": "tsx --test tests/e2e/**/*.test.ts",
+    "test:redis-live": "RUN_REDIS_LIVE_TESTS=1 node --env-file-if-exists=.env.local --import tsx --test tests/integration/redis-live.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "next": "^16.2.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "redis": "^5.11.0",
+    "rrule": "^2.8.1",
+    "zod": "^4.3.6"
+  }
+}
