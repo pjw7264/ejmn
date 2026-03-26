@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { createClient } from "redis";
 import { Event } from "../../src/domain/event.js";
 import { Member } from "../../src/domain/member.js";
 import { RedisEventRepository } from "../../src/repositories/redis-event-repository.js";
 import { generateEventId } from "../../src/lib/event-id.js";
 
-if (typeof process.loadEnvFile === "function") {
+if (typeof process.loadEnvFile === "function" && existsSync(".env.local")) {
   process.loadEnvFile(".env.local");
 }
 
