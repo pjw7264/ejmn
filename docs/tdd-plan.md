@@ -46,7 +46,7 @@
 | U-01 | 이름 정책 | `validateName` | 한글과 글 중간 공백 이름 허용 | 정상 | 이름 통과 | `tests/unit/name-policy.test.ts` |
 | U-02 | 이름 정책 | `validateName` | 이름 앞 공백 거부 | 엣지 | `INVALID_MEMBER_NAME` | `tests/unit/name-policy.test.ts` |
 | U-03 | 이름 정책 | `validateName` | 특수문자 포함 이름 거부 | 엣지 | `INVALID_MEMBER_NAME` | `tests/unit/name-policy.test.ts` |
-| U-04 | 인증 파싱 | `parseAuthorizationHeader` | 빈 비밀번호 Basic 헤더 파싱 | 정상 | `name`, `password=""` 반환 | `tests/unit/basic-auth.test.ts` |
+| U-04 | 인증 파싱 | `parseAuthorizationHeader` | `name:` 형식 Basic 헤더 파싱 | 정상 | `name` 반환 | `tests/unit/basic-auth.test.ts` |
 | U-05 | 인증 파싱 | `parseAuthorizationHeader` | 헤더 누락 | 엣지 | `INVALID_AUTH_HEADER` | `tests/unit/basic-auth.test.ts` |
 | U-06 | 인증 파싱 | `parseAuthorizationHeader` | `Basic`이 아닌 스킴 | 코너 | `INVALID_AUTH_HEADER` | `tests/unit/basic-auth.test.ts` |
 | U-07 | datetime | `parseUtcIsoDateTime` | UTC ISO 8601 파싱 | 정상 | `Date` 반환 | `tests/unit/datetime.test.ts` |
@@ -70,10 +70,10 @@
 | I-01 | 이벤트 생성 | `EventService.createEvent` | 유효한 입력으로 이벤트 생성 | 정상 | `201`에 대응하는 `EventDetail` 데이터 생성 | `tests/integration/event-service.test.ts` |
 | I-02 | 이벤트 생성 | `EventService.createEvent` | 잘못된 이벤트 이름 거부 | 엣지 | `INVALID_EVENT_NAME` | `tests/integration/event-service.test.ts` |
 | I-03 | 이벤트 만료 | `EventService.getEventDetail` | TTL 이후 조회 | 코너 | `EVENT_NOT_FOUND` | `tests/integration/event-service.test.ts` |
-| I-04 | 참여자 생성 | `EventService.upsertMemberAvailability` | 비밀번호 없는 첫 참여자 생성 | 정상 | 최신 `EventDetail` 반환 | `tests/integration/member-service.test.ts` |
-| I-05 | 인증 우선순위 | `EventService.upsertMemberAvailability` | 잘못된 비밀번호 + 잘못된 RRULE 동시 입력 | 코너 | `INVALID_MEMBER_AUTH` 우선 | `tests/integration/member-service.test.ts` |
+| I-04 | 참여자 생성 | `EventService.upsertMemberAvailability` | 이름만 사용하는 첫 참여자 생성 | 정상 | 최신 `EventDetail` 반환 | `tests/integration/member-service.test.ts` |
+| I-05 | 동일 이름 수정 | `EventService.upsertMemberAvailability` | 같은 이름으로 기존 참여자 RRULE 갱신 | 정상 | 최신 `EventDetail` 반환 | `tests/integration/member-service.test.ts` |
 | I-06 | RRULE 검증 | `EventService.upsertMemberAvailability` | 이벤트 범위를 벗어난 RRULE 거부 | 엣지 | `RRULE_OUT_OF_EVENT_RANGE` | `tests/integration/member-service.test.ts` |
-| I-07 | 공개 수정 정책 | `EventService.upsertMemberAvailability` | 비밀번호 없는 기존 참여자에 비밀번호 추가 시도 | 엣지 | `PASSWORD_REGISTRATION_NOT_ALLOWED` | `tests/integration/member-service.test.ts` |
+| I-07 | 인증 헤더 검증 | `EventService.upsertMemberAvailability` | 잘못된 Authorization 헤더 거부 | 엣지 | `INVALID_AUTH_HEADER` | `tests/integration/member-service.test.ts` |
 | I-08 | Redis 저장소 | `RedisEventRepository` | 이벤트와 참여자를 저장 후 재조회 | 정상 | Redis key 기반 CRUD 동작 | `tests/integration/redis-event-repository.test.ts` |
 | I-09 | Redis TTL | `RedisEventRepository` | TTL 이후 이벤트와 참여자 만료 | 코너 | 조회 결과 `null` 또는 빈 목록 | `tests/integration/redis-event-repository.test.ts` |
 | I-10 | Redis 재시도 | `RedisEventRepository` | 초기 연결 실패 후 다음 호출에서 재시도 | 코너 | 두 번째 호출부터 저장 성공 | `tests/integration/redis-event-repository.test.ts` |
@@ -101,7 +101,7 @@
 | ID | 분류 | 시나리오 | 이유 | 우선순위 |
 | --- | --- | --- | --- | --- |
 | X-01 | RRULE | `BYHOUR` 다중값 + `BYMINUTE=0,30` 조합 | 자동화 완료, 회귀 감시 유지 | 완료 |
-| X-02 | 인증 | 비밀번호 없는 기존 참여자에 비밀번호 추가 시도 | 자동화 완료, 회귀 감시 유지 | 완료 |
+| X-02 | 인증 | `name:` 형식이 아닌 Authorization 헤더 입력 | 자동화 완료, 회귀 감시 유지 | 완료 |
 | X-03 | 이름 정책 | 일본어 + 숫자 + 공백 조합 | 국제 문자 허용 범위 확인 | 중간 |
 | X-04 | TTL | 만료 직전 요청과 만료 직후 요청 | 경계 시각 처리 확인 | 중간 |
 | X-05 | 정렬 | 슬롯 수와 이름이 모두 동일한 더미 데이터 | 안정 정렬 구현 세부 확인 | 낮음 |
