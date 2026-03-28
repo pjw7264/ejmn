@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "EJMN",
-  description: "When2Meet 스타일 일정 조율 서비스"
+  description: "When2Meet style scheduling service",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
