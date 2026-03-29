@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { ScreenHeader } from "./screen-header.js";
 import { AvailabilityComposer } from "./availability-composer.js";
 
 type MemberDetail = {
@@ -97,7 +98,7 @@ export function EventDetailScreen({ eventId }: { eventId: string }) {
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(getCanonicalEventUrl(eventId));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -140,25 +141,29 @@ export function EventDetailScreen({ eventId }: { eventId: string }) {
   return (
     <main style={styles.page}>
       <section style={styles.shell}>
-        <div style={styles.headerCard}>
-          <div>
-            <p style={styles.eyebrow}>Event Detail</p>
-            <h1 style={styles.headerTitle}>{event.name}</h1>
-            <p style={styles.headerText}>
-              {formatLocal(event.start)} ~ {formatLocal(event.end)}
-            </p>
-            <p style={styles.headerText}>슬롯 단위 {event.slotMinutes}분</p>
-          </div>
-
-          <div style={styles.headerActions}>
+        <ScreenHeader
+          variant="brandBand"
+          eyebrow="Event Detail"
+          title={event.name}
+          description={
+            <>
+              <p style={styles.headerText}>
+                {formatLocal(event.start)} ~ {formatLocal(event.end)}
+              </p>
+              <p style={styles.headerText}>슬롯 단위 {event.slotMinutes}분</p>
+            </>
+          }
+          actions={
+            <>
             <button type="button" style={styles.secondaryButton} onClick={() => setPanelOpen((value) => !value)}>
               {panelOpen ? "입력 패널 닫기" : "내 일정 등록/수정"}
             </button>
             <button type="button" style={styles.primaryButton} onClick={handleCopy}>
               {copied ? "링크 복사됨" : "링크 공유"}
             </button>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div style={styles.summaryGrid}>
           <article style={styles.metricCard}>
@@ -248,23 +253,31 @@ export function EventDetailScreen({ eventId }: { eventId: string }) {
   );
 }
 
+function getCanonicalEventUrl(eventId: string): string {
+  if (typeof window === "undefined") {
+    return `/?${encodeURIComponent(eventId)}`;
+  }
+
+  return `${window.location.origin}/?${encodeURIComponent(eventId)}`;
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    padding: "32px 20px 72px",
+    padding: "20px 12px 88px",
     background:
       "linear-gradient(180deg, rgba(231,238,252,0.9) 0%, rgba(255,255,255,1) 34%), radial-gradient(circle at top left, rgba(244,226,210,0.65), transparent 28%)",
   },
   shell: {
-    maxWidth: 1180,
+    maxWidth: 420,
     margin: "0 auto",
     display: "grid",
-    gap: 24,
+    gap: 16,
   },
   centerCard: {
-    maxWidth: 720,
-    margin: "80px auto 0",
-    padding: 28,
+    maxWidth: 420,
+    margin: "48px auto 0",
+    padding: 24,
     borderRadius: 28,
     background: "#ffffff",
     border: "1px solid #dfe5ef",
@@ -272,47 +285,20 @@ const styles: Record<string, CSSProperties> = {
   },
   centerTitle: {
     margin: 0,
-    fontSize: 32,
+    fontSize: 28,
     color: "#152847",
   },
   centerText: {
     margin: "12px 0 0",
     color: "#53627b",
   },
-  headerCard: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 20,
-    flexWrap: "wrap",
-    padding: 28,
-    borderRadius: 28,
-    background: "#13233f",
-    color: "#f8fbff",
-  },
-  eyebrow: {
-    margin: 0,
-    fontSize: 12,
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-    color: "#b7c6e5",
-  },
-  headerTitle: {
-    margin: "10px 0 12px",
-    fontSize: "clamp(2rem, 4vw, 3.5rem)",
-    lineHeight: 1.04,
-  },
   headerText: {
     margin: "6px 0 0",
     color: "#d7e0f0",
   },
-  headerActions: {
-    display: "flex",
-    gap: 12,
-    alignItems: "flex-start",
-    flexWrap: "wrap",
-  },
   primaryButton: {
-    minHeight: 46,
+    minHeight: 48,
+    width: "100%",
     padding: "0 18px",
     borderRadius: 999,
     border: 0,
@@ -322,7 +308,8 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   secondaryButton: {
-    minHeight: 46,
+    minHeight: 48,
+    width: "100%",
     padding: "0 18px",
     borderRadius: 999,
     border: "1px solid rgba(255,255,255,0.22)",
@@ -333,11 +320,11 @@ const styles: Record<string, CSSProperties> = {
   },
   summaryGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 16,
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gap: 12,
   },
   metricCard: {
-    padding: 20,
+    padding: 18,
     borderRadius: 22,
     background: "#ffffff",
     border: "1px solid #dfe5ef",
@@ -352,22 +339,22 @@ const styles: Record<string, CSSProperties> = {
   metricValue: {
     display: "block",
     marginTop: 10,
-    fontSize: 24,
+    fontSize: 22,
     color: "#13233f",
   },
   bodyGrid: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1.2fr) minmax(260px, 0.8fr)",
-    gap: 20,
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gap: 16,
   },
   membersCard: {
-    padding: 24,
+    padding: 20,
     borderRadius: 26,
     background: "#ffffff",
     border: "1px solid #dfe5ef",
   },
   sideCard: {
-    padding: 24,
+    padding: 20,
     borderRadius: 26,
     background: "#f6f8fc",
     border: "1px solid #dfe5ef",
@@ -387,7 +374,7 @@ const styles: Record<string, CSSProperties> = {
   },
   cardTitle: {
     margin: "10px 0 0",
-    fontSize: 28,
+    fontSize: 22,
     color: "#152847",
   },
   memberList: {
@@ -423,7 +410,7 @@ const styles: Record<string, CSSProperties> = {
     color: "#53627b",
   },
   panelCard: {
-    padding: 24,
+    padding: 20,
     borderRadius: 28,
     background: "#ffffff",
     border: "1px solid #dfe5ef",
@@ -433,8 +420,8 @@ const styles: Record<string, CSSProperties> = {
   },
   formGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: 16,
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gap: 12,
     marginBottom: 12,
   },
   field: {

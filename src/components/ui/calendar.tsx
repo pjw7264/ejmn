@@ -3,11 +3,12 @@
 import { addMonths } from "date-fns";
 import { ko } from "date-fns/locale";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
+import Holidays from "date-holidays";
 import {
   Day as DayPickerDay,
-  DayButton as DayPickerDayButton,
   DayFlag,
   DayPicker,
+  Weekday as DayPickerWeekday,
   type DateRange,
   SelectionState,
   UI,
@@ -15,9 +16,23 @@ import {
   type DayButtonProps,
   type DayPickerProps,
   type DayProps,
+  type WeekdayProps,
 } from "react-day-picker";
 
-type CalendarProps = DayPickerProps;
+type CalendarTouchHandlers = {
+  onDaySelect?: (day: Date) => void;
+  onRangeTouchStart?: (day: Date) => void;
+  onRangeTouchMove?: (day: Date) => void;
+  onRangeTouchEnd?: (day: Date | null, moved: boolean) => void;
+};
+
+type CalendarDayButtonTouchProps = {
+  onDayPress?: (day: Date) => void;
+};
+
+type CalendarProps = DayPickerProps & CalendarTouchHandlers;
+
+const koreanHolidays = new Holidays("KR");
 
 const navButtonStyle: CSSProperties = {
   width: 36,
@@ -37,6 +52,7 @@ const baseStyles: CalendarProps["styles"] = {
     width: "100%",
     fontFamily: "inherit",
     color: "#182845",
+    touchAction: "pan-y",
   },
   [UI.Months]: {
     display: "grid",
@@ -78,14 +94,14 @@ const baseStyles: CalendarProps["styles"] = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 48,
+    minHeight: 60,
     padding: 0,
     textAlign: "center",
   },
   [UI.DayButton]: {
-    width: 44,
-    height: 44,
-    borderRadius: "50%",
+    width: "100%",
+    minHeight: 56,
+    borderRadius: 16,
     border: 0,
     background: "transparent",
     color: "#182845",
@@ -97,10 +113,12 @@ const baseStyles: CalendarProps["styles"] = {
     zIndex: 1,
   },
   [DayFlag.disabled]: {
-    opacity: 0.32,
+    opacity: 1,
+    color: "#98a2b3",
   },
   [DayFlag.outside]: {
-    opacity: 0.32,
+    opacity: 1,
+    color: "#98a2b3",
   },
   [DayFlag.today]: {
     color: "#0f3d91",
@@ -121,13 +139,29 @@ const baseStyles: CalendarProps["styles"] = {
 };
 
 export function Calendar({ styles, ...props }: CalendarProps) {
-  const { defaultMonth, month: controlledMonth, onMonthChange, ...restProps } = props;
+  const {
+    defaultMonth,
+    month: controlledMonth,
+    onMonthChange,
+    onDaySelect,
+    onRangeTouchStart,
+    onRangeTouchMove,
+    onRangeTouchEnd,
+    ...restProps
+  } = props;
   const selectedRange = props.mode === "range" ? (props.selected as DateRange | undefined) : undefined;
   const isControlled = controlledMonth !== undefined;
   const [uncontrolledMonth, setUncontrolledMonth] = useState<Date>(() =>
     normalizeMonth(defaultMonth ?? selectedRange?.from ?? new Date()),
   );
   const previousSelectedFromRef = useRef<number | null>(selectedRange?.from ? normalizeDate(selectedRange.from).getTime() : null);
+  const touchDraggingRef = useRef(false);
+  const touchMovedRef = useRef(false);
+  const lastTouchedDayKeyRef = useRef<string | null>(null);
+  const suppressClickRef = useRef(false);
+  const suppressClickTimeoutRef = useRef<number | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
 
   const currentMonth = normalizeMonth(controlledMonth ?? uncontrolledMonth);
 
@@ -136,6 +170,10 @@ export function Calendar({ styles, ...props }: CalendarProps) {
       previousSelectedFromRef.current = selectedRange?.from
         ? normalizeDate(selectedRange.from).getTime()
         : null;
+      return;
+    }
+
+    if (touchDraggingRef.current) {
       return;
     }
 
@@ -159,8 +197,146 @@ export function Calendar({ styles, ...props }: CalendarProps) {
     onMonthChange?.(normalized);
   }
 
+  useEffect(() => {
+    const frameElement = frameRef.current;
+
+    if (!frameElement) {
+      return;
+    }
+
+    function getDayFromTarget(target: EventTarget | null): Date | null {
+      const button = target instanceof Element ? target.closest<HTMLElement>("[data-calendar-day]") : null;
+
+      if (!button || button.dataset.calendarDisabled === "true") {
+        return null;
+      }
+
+      const dayKey = button.dataset.calendarDay;
+      return dayKey ? parseDateKey(dayKey) : null;
+    }
+
+    function finishPointerInteraction(clientX: number, clientY: number) {
+      const finalTouchedDay = getPointDayFromClient(clientX, clientY);
+      const fallbackTouchedDay = lastTouchedDayKeyRef.current ? parseDateKey(lastTouchedDayKeyRef.current) : null;
+      const settledDay = finalTouchedDay ?? fallbackTouchedDay;
+      const didMove = touchMovedRef.current;
+
+      if (didMove && settledDay) {
+        emitTouchedDay(settledDay, "move");
+      }
+
+      touchDraggingRef.current = false;
+      touchMovedRef.current = false;
+      lastTouchedDayKeyRef.current = null;
+      activePointerIdRef.current = null;
+      onRangeTouchEnd?.(settledDay, didMove);
+      if (suppressClickTimeoutRef.current !== null) {
+        window.clearTimeout(suppressClickTimeoutRef.current);
+      }
+      if (!didMove) {
+        suppressClickRef.current = false;
+      } else {
+        suppressClickTimeoutRef.current = window.setTimeout(() => {
+          suppressClickRef.current = false;
+          suppressClickTimeoutRef.current = null;
+        }, 120);
+      }
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (event.pointerType !== "touch") {
+        return;
+      }
+
+      const touchedDay = getDayFromTarget(event.target) ?? getPointDayFromClient(event.clientX, event.clientY);
+
+      if (!touchedDay) {
+        return;
+      }
+
+      activePointerIdRef.current = event.pointerId;
+      touchDraggingRef.current = true;
+      touchMovedRef.current = false;
+      suppressClickRef.current = true;
+      emitTouchedDay(touchedDay, "start");
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      if (!touchDraggingRef.current || event.pointerType !== "touch" || activePointerIdRef.current !== event.pointerId) {
+        return;
+      }
+
+      const touchedDay = getPointDayFromClient(event.clientX, event.clientY);
+
+      if (!touchedDay) {
+        return;
+      }
+
+      touchMovedRef.current = true;
+      emitTouchedDay(touchedDay, "move");
+    }
+
+    function handlePointerEnd(event: PointerEvent) {
+      if (!touchDraggingRef.current || event.pointerType !== "touch" || activePointerIdRef.current !== event.pointerId) {
+        return;
+      }
+
+      finishPointerInteraction(event.clientX, event.clientY);
+    }
+
+    frameElement.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+
+    return () => {
+      frameElement.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [onRangeTouchEnd, onRangeTouchStart, onRangeTouchMove]);
+
+  useEffect(() => {
+    return () => {
+      if (suppressClickTimeoutRef.current !== null) {
+        window.clearTimeout(suppressClickTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function emitTouchedDay(day: Date, phase: "start" | "move") {
+    const dayKey = formatDateKey(day);
+
+    if (lastTouchedDayKeyRef.current === dayKey && phase === "move") {
+      return;
+    }
+
+      lastTouchedDayKeyRef.current = dayKey;
+
+    if (phase === "start") {
+      onRangeTouchStart?.(day);
+      return;
+    }
+
+    suppressClickRef.current = true;
+    onRangeTouchMove?.(day);
+  }
+
+  function getPointDayFromClient(clientX: number, clientY: number): Date | null {
+    const element = document.elementFromPoint(clientX, clientY);
+    const button = element?.closest<HTMLElement>("[data-calendar-day]");
+
+    if (!button || button.dataset.calendarDisabled === "true") {
+      return null;
+    }
+
+    const dayKey = button.dataset.calendarDay;
+    return dayKey ? parseDateKey(dayKey) : null;
+  }
+
   return (
-    <div style={calendarFrameStyle}>
+    <div ref={frameRef} style={calendarFrameStyle}>
       <div style={calendarHeaderStyle}>
         <button type="button" style={navButtonStyle} onClick={() => updateMonth(addMonths(currentMonth, -1))} aria-label="이전 달">
           &lt;
@@ -173,17 +349,29 @@ export function Calendar({ styles, ...props }: CalendarProps) {
 
       <DayPicker
         components={{
-          Day: CalendarDay,
+          Day: (dayProps) => <CalendarDay {...dayProps} selectedRange={selectedRange} />,
           DayButton: (buttonProps) => (
-            <CalendarDayButton {...buttonProps} selectedRange={selectedRange} />
+            <CalendarDayButton
+              {...buttonProps}
+              selectedRange={selectedRange}
+              onDayPress={(day) => {
+                if (suppressClickRef.current) {
+                  return;
+                }
+
+                onDaySelect?.(day);
+              }}
+            />
           ),
+          Weekday: CalendarWeekday,
         }}
         locale={ko}
         month={currentMonth}
         onMonthChange={updateMonth}
         hideNavigation
         fixedWeeks
-        showOutsideDays={false}
+        showOutsideDays
+        weekStartsOn={1}
         styles={mergeStyles(baseStyles, styles)}
         {...restProps}
       />
@@ -217,32 +405,140 @@ function CalendarDayButton({
   modifiers,
   style,
   selectedRange,
+  onDayPress,
   ...props
-}: DayButtonProps & { selectedRange?: DateRange }) {
-  const isEndpoint = isSelectedEndpoint(day, modifiers, selectedRange);
-  const isRangeMiddle = Boolean(modifiers[SelectionState.range_middle]);
+}: DayButtonProps &
+  CalendarDayButtonTouchProps & {
+    selectedRange?: DateRange;
+  }) {
+  const isEndpoint = isSelectedEndpoint(day, selectedRange);
+  const isRangeMiddle = isSelectedRangeMiddle(day.date, selectedRange);
+  const isDisabled = Boolean(modifiers[DayFlag.disabled] || modifiers.disabled);
+  const isOutside = Boolean(modifiers[DayFlag.outside] || modifiers.outside);
+  const dayOfWeek = day.date.getDay();
+  const holidayLabel = getDisplayHolidayLabel(day.date);
+  const holidayName = holidayLabel?.text ?? null;
+  const isHoliday = Boolean(holidayName);
+  const weekendColor = dayOfWeek === 0 ? "#d92d20" : dayOfWeek === 6 ? "#175cd3" : "#182845";
+  const baseDayColor = isHoliday ? "#d92d20" : weekendColor;
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (modifiers.focused) {
+      buttonRef.current?.focus();
+    }
+  }, [modifiers.focused]);
 
   return (
-    <DayPickerDayButton
-      day={day}
-      modifiers={modifiers}
+    <button
+      ref={buttonRef}
+      {...props}
+      data-calendar-day={formatDateKey(day.date)}
+      data-calendar-disabled={isDisabled ? "true" : "false"}
       style={{
         ...style,
         background: isEndpoint ? "#2f6df6" : "transparent",
-        color: isEndpoint ? "#ffffff" : isRangeMiddle ? "#55657d" : "#182845",
+        color: isDisabled || isOutside ? "#98a2b3" : isEndpoint ? "#ffffff" : isRangeMiddle ? "#55657d" : baseDayColor,
         borderRadius: "50%",
         boxShadow: isEndpoint ? "0 10px 22px rgba(47, 109, 246, 0.22)" : "none",
+        cursor: isDisabled ? "default" : style?.cursor ?? "pointer",
+        opacity: 1,
+        fontWeight: isOutside ? 500 : style?.fontWeight,
+        display: "grid",
+        alignContent: "center",
+        justifyItems: "center",
+        gap: holidayName ? 2 : 0,
+        touchAction: "pan-y",
       }}
-      {...props}
-    />
+      onClick={(event) => {
+        props.onClick?.(event);
+        if (isDisabled) {
+          event.preventDefault();
+          return;
+        }
+
+        onDayPress?.(day.date);
+      }}
+    >
+      <span>{day.date.getDate()}</span>
+      {holidayName ? (
+        <span
+          style={{
+            fontSize: holidayLabel?.truncated ? 8 : 8.5,
+            lineHeight: 1.2,
+            fontWeight: isOutside ? 500 : 700,
+            color: isDisabled || isOutside ? "#98a2b3" : isEndpoint ? "#ffffff" : "#d92d20",
+            width: "100%",
+            padding: "0 1px",
+            whiteSpace: "normal",
+            wordBreak: "keep-all",
+            textAlign: "center",
+          }}
+        >
+          {holidayName}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
-function CalendarDay({ modifiers, children, style, ...props }: DayProps) {
-  const isRangeMiddle = Boolean(modifiers[SelectionState.range_middle]);
+function CalendarWeekday({ children, style, ...props }: WeekdayProps) {
+  return (
+    <DayPickerWeekday
+      style={{
+        ...style,
+        color: "#61738d",
+      }}
+      {...props}
+    >
+      {children}
+    </DayPickerWeekday>
+  );
+}
+
+function getDisplayHolidayLabel(date: Date): { text: string; truncated: boolean } | null {
+  const holidayName = getKoreanHolidayName(date);
+
+  if (!holidayName) {
+    return null;
+  }
+
+  if (holidayName.length <= 5) {
+    return { text: holidayName, truncated: false };
+  }
+
+  return { text: `${holidayName.slice(0, 3)}...`, truncated: true };
+}
+
+function getKoreanHolidayName(date: Date): string | null {
+  const holiday = koreanHolidays.isHoliday(formatDateKey(date));
+
+  if (!holiday) {
+    return null;
+  }
+
+  const firstHoliday = Array.isArray(holiday) ? holiday[0] : holiday;
+  return firstHoliday?.name ?? null;
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(value: string): Date | null {
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function CalendarDay({ day, modifiers, children, style, selectedRange, ...props }: DayProps & { selectedRange?: DateRange }) {
+  const isRangeMiddle = isSelectedRangeMiddle(day.date, selectedRange);
 
   return (
     <DayPickerDay
+      day={day}
       modifiers={modifiers}
       style={{
         ...style,
@@ -258,7 +554,6 @@ function CalendarDay({ modifiers, children, style, ...props }: DayProps) {
 
 function isSelectedEndpoint(
   day: DayModel,
-  modifiers: DayButtonProps["modifiers"],
   selectedRange?: DateRange,
 ): boolean {
   const dayTime = normalizeDate(day.date).getTime();
@@ -273,15 +568,23 @@ function isSelectedEndpoint(
     return true;
   }
 
-  if (modifiers[SelectionState.range_start] || modifiers[SelectionState.range_end]) {
-    return true;
+  return false;
+}
+
+function isSelectedRangeMiddle(day: Date, selectedRange?: DateRange): boolean {
+  if (!selectedRange?.from || !selectedRange.to) {
+    return false;
   }
 
-  if (modifiers[SelectionState.selected] && !modifiers[SelectionState.range_middle]) {
-    return true;
+  const dayTime = normalizeDate(day).getTime();
+  const fromTime = normalizeDate(selectedRange.from).getTime();
+  const toTime = normalizeDate(selectedRange.to).getTime();
+
+  if (fromTime === toTime) {
+    return false;
   }
 
-  return Boolean(modifiers.selected && !modifiers.range_middle);
+  return dayTime > Math.min(fromTime, toTime) && dayTime < Math.max(fromTime, toTime);
 }
 
 function normalizeDate(date: Date): Date {
@@ -320,6 +623,8 @@ const rangeBarStyle: CSSProperties = {
 const calendarFrameStyle: CSSProperties = {
   width: "100%",
   overflow: "hidden",
+  touchAction: "pan-y",
+  overscrollBehavior: "auto",
 };
 
 const calendarHeaderStyle: CSSProperties = {

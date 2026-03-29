@@ -1,6 +1,5 @@
-import { CreateEventForm } from "../../src/components/create-event-form.js";
+import { redirect } from "next/navigation.js";
 
 export default function EventsPage() {
-  return <CreateEventForm />;
+  redirect("/");
 }
-

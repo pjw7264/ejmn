@@ -1,8 +1,3 @@
-import type { CSSProperties } from "react";
-import { CreateEventForm } from "../src/components/create-event-form.js";
+import { HomeScreen } from "../src/screens/home-screen.js";
 
-export default function HomePage() {
-  return (
-    <CreateEventForm variant="home" />
-  );
-}
+export default HomeScreen;

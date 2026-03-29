@@ -41,23 +41,23 @@ export function validateCreateEventDraft(draft: CreateEventDraft, now = Date.now
   const effectiveEndDate = draft.endDate || draft.startDate;
 
   if (!draft.name.trim()) {
-    errors.name = "이벤트 이름을 입력해 주세요.";
+    errors.name = "이름을 입력해 주세요.";
   }
 
   if (!draft.startDate) {
-    errors.startDate = "시작 날짜를 선택해 주세요.";
+    errors.startDate = "약속 날짜를 선택해 주세요.";
   }
 
   if (!effectiveEndDate) {
-    errors.endDate = "종료 날짜를 선택해 주세요.";
+    errors.endDate = "약속 날짜를 선택해 주세요.";
   }
 
   if (!draft.startTime) {
-    errors.startTime = "시작 시간을 선택해 주세요.";
+    errors.startTime = "약속 시간을 선택해 주세요.";
   }
 
   if (!draft.endTime) {
-    errors.endTime = "종료 시간을 선택해 주세요.";
+    errors.endTime = "약속 시간을 선택해 주세요.";
   }
 
   if (draft.startDate && effectiveEndDate && draft.startTime && draft.endTime) {

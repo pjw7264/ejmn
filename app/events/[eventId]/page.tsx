@@ -1,4 +1,4 @@
-import { EventDetailScreen } from "../../../src/components/event-detail-screen.js";
+import { redirect } from "next/navigation.js";
 
 interface EventPageProps {
   params: Promise<{ eventId: string }>;
@@ -6,6 +6,5 @@ interface EventPageProps {
 
 export default async function EventPage({ params }: EventPageProps) {
   const { eventId } = await params;
-  return <EventDetailScreen eventId={eventId} />;
+  redirect(`/?${encodeURIComponent(eventId)}`);
 }
-
