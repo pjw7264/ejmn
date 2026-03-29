@@ -13,7 +13,10 @@ test("시간 옵션은 00:00부터 23:00까지 생성된다", () => {
 });
 
 test("날짜범위와 시간범위를 UTC ISO datetime으로 변환한다", () => {
-  assert.equal(toUtcIsoFromParts("2026-03-28", "10:00"), "2026-03-28T01:00:00Z");
+  assert.equal(
+    toUtcIsoFromParts("2026-03-28", "10:00"),
+    new Date("2026-03-28T10:00:00").toISOString().replace(".000Z", "Z"),
+  );
 });
 
 test("종료가 시작보다 빠르거나 같으면 검증에 실패한다", () => {
@@ -28,7 +31,7 @@ test("종료가 시작보다 빠르거나 같으면 검증에 실패한다", () 
     new Date("2026-03-20T00:00:00Z").getTime(),
   );
 
-  assert.equal(result.endTime, "종료 시각은 시작 시각보다 뒤여야 합니다.");
+  assert.equal(result.endTime, "종료 시간은 시작 시간보다 뒤여야 합니다.");
 });
 
 test("종료가 현재보다 과거면 검증에 실패한다", () => {
@@ -43,10 +46,10 @@ test("종료가 현재보다 과거면 검증에 실패한다", () => {
     new Date("2026-03-20T00:00:00Z").getTime(),
   );
 
-  assert.equal(result.endTime, "종료 시각은 현재보다 미래여야 합니다.");
+  assert.equal(result.endTime, "종료 시간은 현재보다 미래여야 합니다.");
 });
 
-test("시작시간과 종료시간은 둘 다 필수다", () => {
+test("약속 시간은 시작과 종료가 모두 필요하다", () => {
   const result = validateCreateEventDraft({
     name: "입력 검증",
     startDate: "2026-03-28",
@@ -55,6 +58,6 @@ test("시작시간과 종료시간은 둘 다 필수다", () => {
     endTime: "",
   });
 
-  assert.equal(result.startTime, "시작 시간을 선택해 주세요.");
-  assert.equal(result.endTime, "종료 시간을 선택해 주세요.");
+  assert.equal(result.startTime, "약속 시간을 선택해 주세요.");
+  assert.equal(result.endTime, "약속 시간을 선택해 주세요.");
 });

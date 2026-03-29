@@ -21,6 +21,15 @@ function setup(): RenderedForm {
   const previousDocument = globalThis.document;
   const previousHTMLElement = globalThis.HTMLElement;
   const previousNavigator = globalThis.navigator;
+  const previousScrollTo = window.HTMLElement.prototype.scrollTo;
+  const previousAttachEvent = (window.HTMLElement.prototype as HTMLElement & {
+    attachEvent?: (name: string, listener: EventListener) => void;
+    detachEvent?: (name: string, listener: EventListener) => void;
+  }).attachEvent;
+  const previousDetachEvent = (window.HTMLElement.prototype as HTMLElement & {
+    attachEvent?: (name: string, listener: EventListener) => void;
+    detachEvent?: (name: string, listener: EventListener) => void;
+  }).detachEvent;
 
   Object.assign(globalThis, {
     window,
@@ -39,6 +48,25 @@ function setup(): RenderedForm {
   Object.assign(globalThis, {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+
+  window.HTMLElement.prototype.scrollTo = function scrollTo(options: ScrollToOptions | number, y?: number) {
+    if (typeof options === "number") {
+      (this as HTMLElement).scrollTop = y ?? 0;
+      return;
+    }
+
+    (this as HTMLElement).scrollTop = options.top ?? 0;
+  };
+
+  (window.HTMLElement.prototype as HTMLElement & {
+    attachEvent?: (name: string, listener: EventListener) => void;
+    detachEvent?: (name: string, listener: EventListener) => void;
+  }).attachEvent = function attachEvent() {};
+
+  (window.HTMLElement.prototype as HTMLElement & {
+    attachEvent?: (name: string, listener: EventListener) => void;
+    detachEvent?: (name: string, listener: EventListener) => void;
+  }).detachEvent = function detachEvent() {};
 
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
@@ -65,6 +93,15 @@ function setup(): RenderedForm {
         configurable: true,
         value: previousNavigator,
       });
+      window.HTMLElement.prototype.scrollTo = previousScrollTo;
+      (window.HTMLElement.prototype as HTMLElement & {
+        attachEvent?: (name: string, listener: EventListener) => void;
+        detachEvent?: (name: string, listener: EventListener) => void;
+      }).attachEvent = previousAttachEvent;
+      (window.HTMLElement.prototype as HTMLElement & {
+        attachEvent?: (name: string, listener: EventListener) => void;
+        detachEvent?: (name: string, listener: EventListener) => void;
+      }).detachEvent = previousDetachEvent;
       Object.assign(globalThis, {
         IS_REACT_ACT_ENVIRONMENT: undefined,
       });
@@ -76,12 +113,14 @@ test("첫 화면에 이벤트 이름, 날짜범위 캘린더, 시간 wheel picke
   const app = setup();
 
   try {
-    assert.ok(app.container.textContent?.includes("이벤트 이름"));
-    assert.ok(app.container.textContent?.includes("날짜범위 선택"));
-    assert.ok(app.container.textContent?.includes("시간범위 선택"));
+    const nameInput = app.container.querySelector("input");
+    assert.ok(app.container.textContent?.includes("이름"));
+    assert.ok(app.container.textContent?.includes("약속 날짜"));
+    assert.ok(app.container.textContent?.includes("약속 시간"));
     assert.ok(app.container.textContent?.includes("이벤트 만들기"));
     assert.ok(app.container.querySelector('[role="grid"]'));
     assert.equal(app.container.querySelectorAll('[data-wheel-column]').length, 4);
+    assert.equal(nameInput?.getAttribute("placeholder"), "약속 이름을 입력하세요");
   } finally {
     app.cleanup();
   }

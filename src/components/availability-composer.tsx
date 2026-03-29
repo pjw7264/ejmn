@@ -479,20 +479,17 @@ export function AvailabilityComposer({
 
 const styles: Record<string, CSSProperties> = {
   shell: {
-    maxWidth: 1180,
+    maxWidth: 420,
     margin: "0 auto",
-    padding: "32px 16px 56px",
+    padding: "20px 0 8px",
   },
   header: {
-    display: "flex",
-    gap: 20,
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    flexWrap: "wrap",
-    marginBottom: 24,
+    display: "grid",
+    gap: 12,
+    marginBottom: 16,
   },
   headerCopy: {
-    flex: "1 1 440px",
+    minWidth: 0,
   },
   eyebrow: {
     margin: 0,
@@ -503,20 +500,19 @@ const styles: Record<string, CSSProperties> = {
   },
   title: {
     margin: "8px 0 12px",
-    fontSize: "clamp(1.9rem, 5vw, 3.6rem)",
+    fontSize: "clamp(1.6rem, 6vw, 2.2rem)",
     lineHeight: 1.04,
   },
   description: {
     margin: 0,
-    maxWidth: 720,
+    maxWidth: "100%",
     fontSize: 15,
     lineHeight: 1.6,
     color: "#45556f",
   },
   legendCard: {
-    flex: "0 1 240px",
-    minWidth: 220,
-    padding: 18,
+    minWidth: 0,
+    padding: 16,
     border: "1px solid #dde3ea",
     backgroundColor: "#f8fafc",
     borderRadius: 16,
@@ -621,18 +617,18 @@ const styles: Record<string, CSSProperties> = {
   },
   footer: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 16,
-    marginTop: 20,
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gap: 12,
+    marginTop: 16,
   },
   summaryCard: {
-    padding: 20,
+    padding: 18,
     border: "1px solid #dde3ea",
     backgroundColor: "#f8fafc",
     borderRadius: 16,
   },
   summaryListCard: {
-    padding: 20,
+    padding: 18,
     border: "1px solid #dde3ea",
     backgroundColor: "#f8fafc",
     borderRadius: 16,
@@ -646,7 +642,7 @@ const styles: Record<string, CSSProperties> = {
   },
   summaryValue: {
     margin: "10px 0 0",
-    fontSize: 34,
+    fontSize: 28,
     lineHeight: 1,
   },
   summaryList: {

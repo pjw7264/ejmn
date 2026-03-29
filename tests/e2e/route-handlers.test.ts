@@ -7,6 +7,10 @@ import { InMemoryEventRepository } from "../../src/repositories/in-memory-event-
 import { setRepositoryForTesting } from "../../src/server/runtime.js";
 import { setLogErrorForTesting, setPingRedisForTesting } from "../../src/server/health.js";
 
+const EVENT_START = "2026-03-31T01:00:00Z";
+const EVENT_END = "2026-04-02T13:00:00Z";
+const MEMBER_RRULE = "DTSTART:20260331T010000Z";
+
 function context(eventId: string) {
   return { params: Promise.resolve({ eventId }) };
 }
@@ -44,8 +48,8 @@ test("이벤트 생성, 참여자 등록, 상세 조회의 전체 흐름이 동�
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "주원이 약속",
-        start: "2026-03-26T01:00:00Z",
-        end: "2026-03-28T13:00:00Z"
+        start: EVENT_START,
+        end: EVENT_END
       })
     })
   );
@@ -63,7 +67,7 @@ test("이벤트 생성, 참여자 등록, 상세 조회의 전체 흐름이 동�
         "content-type": "application/json",
         authorization: `Basic ${Buffer.from("주워니:").toString("base64")}`
       },
-      body: JSON.stringify({ rrule: "DTSTART:20260326T010000Z" })
+      body: JSON.stringify({ rrule: MEMBER_RRULE })
     }),
     context(eventId)
   );
@@ -88,8 +92,8 @@ test("잘못된 Authorization 헤더는 401과 INVALID_AUTH_HEADER를 반환한�
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "주원이 약속",
-        start: "2026-03-26T01:00:00Z",
-        end: "2026-03-28T13:00:00Z"
+        start: EVENT_START,
+        end: EVENT_END
       })
     })
   );
@@ -102,7 +106,7 @@ test("잘못된 Authorization 헤더는 401과 INVALID_AUTH_HEADER를 반환한�
         "content-type": "application/json",
         authorization: "Basic invalid-base64"
       },
-      body: JSON.stringify({ rrule: "DTSTART:20260326T010000Z" })
+      body: JSON.stringify({ rrule: MEMBER_RRULE })
     }),
     context(createdEvent.id)
   );
@@ -137,7 +141,7 @@ test("필수 필드가 누락된 이벤트 생성 요청은 422와 MISSING_REQUI
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "주원이 약속",
-        start: "2026-03-26T01:00:00Z"
+        start: EVENT_START
       })
     })
   );
@@ -166,8 +170,8 @@ test("잘못된 datetime 형식의 이벤트 생성 요청은 422와 INVALID_DAT
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "주원이 약속",
-        start: "2026-03-26 01:00:00",
-        end: "2026-03-28T13:00:00Z"
+        start: "2026-03-31 01:00:00",
+        end: EVENT_END
       })
     })
   );
@@ -186,8 +190,8 @@ test("PATCH 요청에서 rrule이 누락되면 422와 MISSING_REQUIRED_FIELD를 
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "주원이 약속",
-        start: "2026-03-26T01:00:00Z",
-        end: "2026-03-28T13:00:00Z"
+        start: EVENT_START,
+        end: EVENT_END
       })
     })
   );

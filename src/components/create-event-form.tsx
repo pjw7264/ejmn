@@ -1,20 +1,45 @@
 "use client";
 
-import type { CSSProperties, FormEvent, UIEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, FormEvent, MutableRefObject, UIEvent } from "react";
 import type { DateRange } from "react-day-picker";
 import {
-  getLocalDateTimeSummary,
   toUtcIsoFromParts,
   type CreateEventDraft,
   type CreateEventErrors,
   validateCreateEventDraft,
 } from "./create-event-form-utils.js";
+import { ScreenHeader } from "./screen-header.js";
 import { Calendar } from "./ui/calendar.js";
 import { Card, CardContent } from "./ui/card.js";
 
 type CreateEventFormProps = { variant?: "home" | "standalone" };
-type HourOption =
+type FormHeaderProps = { variant: "home" | "standalone" };
+type NameFieldProps = {
+  inputRef: MutableRefObject<HTMLInputElement | null>;
+  value: string;
+  error?: string;
+  onChange: (next: string) => void;
+};
+type DateRangeSectionProps = {
+  sectionRef: MutableRefObject<HTMLElement | null>;
+  selectedRange: DateRange | undefined;
+  error?: string;
+  onDayClick: (day: Date) => void;
+  onTouchStart: (day: Date) => void;
+  onTouchMove: (day: Date) => void;
+  onTouchEnd: (day: Date | null, moved: boolean) => void;
+};
+type TimeRangeSectionProps = {
+  sectionRef: MutableRefObject<HTMLElement | null>;
+  startTime: string;
+  endTime: string;
+  error?: string;
+  onStartTimeChange: (next: string) => void;
+  onEndTimeChange: (next: string) => void;
+};
+type MeridiemOption = "오전" | "오후";
+type Hour12Option =
   | "1"
   | "2"
   | "3"
@@ -26,23 +51,14 @@ type HourOption =
   | "9"
   | "10"
   | "11"
-  | "12"
-  | "13"
-  | "14"
-  | "15"
-  | "16"
-  | "17"
-  | "18"
-  | "19"
-  | "20"
-  | "21"
-  | "22"
-  | "23"
-  | "24";
+  | "12";
 type TimeWheelPickerProps = { label: string; value: string; onChange: (next: string) => void };
 type TimeoutRef = { current: number | null };
+type WheelSelectionState = { meridiemIndex: number; hourIndex: number };
+type WheelScrollBehaviorState = { meridiem: ScrollBehavior; hour: ScrollBehavior };
 
-const HOUR_OPTIONS: HourOption[] = [
+const MERIDIEM_OPTIONS: MeridiemOption[] = ["오전", "오후"];
+const HOUR_OPTIONS: Hour12Option[] = [
   "1",
   "2",
   "3",
@@ -55,22 +71,16 @@ const HOUR_OPTIONS: HourOption[] = [
   "10",
   "11",
   "12",
-  "13",
-  "14",
-  "15",
-  "16",
-  "17",
-  "18",
-  "19",
-  "20",
-  "21",
-  "22",
-  "23",
-  "24",
 ];
+const HOUR_SLOT_OPTIONS: Hour12Option[] = [...HOUR_OPTIONS, ...HOUR_OPTIONS];
 const WHEEL_ITEM_HEIGHT = 44;
 const WHEEL_VIEWPORT_HEIGHT = 176;
 const WHEEL_CENTER_OFFSET = (WHEEL_VIEWPORT_HEIGHT - WHEEL_ITEM_HEIGHT) / 2;
+const WHEEL_PICKER_GAP = 10;
+const WHEEL_LABEL_ROW_HEIGHT = 18;
+const WHEEL_BODY_VERTICAL_PADDING = 8;
+const WAVE_SEPARATOR_OFFSET =
+  WHEEL_LABEL_ROW_HEIGHT + WHEEL_PICKER_GAP + WHEEL_BODY_VERTICAL_PADDING + WHEEL_CENTER_OFFSET;
 
 function getDefaultDraft(): CreateEventDraft {
   const now = new Date();
@@ -92,9 +102,12 @@ export function CreateEventForm({ variant = "standalone" }: CreateEventFormProps
   const [draft, setDraft] = useState<CreateEventDraft>(() => getDefaultDraft());
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<CreateEventErrors>({});
+  const [touchPreviewRange, setTouchPreviewRange] = useState<DateRange | undefined>(undefined);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const dateSectionRef = useRef<HTMLElement | null>(null);
   const timeSectionRef = useRef<HTMLElement | null>(null);
+  const touchRangeAnchorRef = useRef<Date | null>(null);
+  const touchPreviewRangeRef = useRef<DateRange | undefined>(undefined);
 
   const selectedDateRange = useMemo<DateRange | undefined>(() => {
     const from = parseDateValue(draft.startDate);
@@ -102,15 +115,80 @@ export function CreateEventForm({ variant = "standalone" }: CreateEventFormProps
     if (!from) return undefined;
     return { from, to: to ?? from };
   }, [draft.endDate, draft.startDate]);
+  const displayedDateRange = touchPreviewRange ?? selectedDateRange;
+
+  useEffect(() => {
+    nameInputRef.current?.focus();
+  }, []);
+
+  function updateTouchPreviewRange(nextRange: DateRange | undefined) {
+    touchPreviewRangeRef.current = nextRange;
+    setTouchPreviewRange(nextRange);
+  }
+
+  function applyCalendarRange(nextRange: DateRange | undefined) {
+    setDraft((current) => ({
+      ...current,
+      startDate: nextRange?.from ? toDateInputValue(nextRange.from) : "",
+      endDate: nextRange?.to ? toDateInputValue(nextRange.to) : "",
+    }));
+  }
+
+  function selectSingleCalendarDay(day: Date) {
+    applyCalendarRange({ from: day, to: day });
+  }
 
   function handleCalendarDayClick(day: Date) {
-    if (isBeforeToday(day)) return;
+    if (isBeforeToday(day)) {
+      return;
+    }
 
-    const nextRange = normalizeDateRange(getNextDateRange(selectedDateRange, day));
-    const startDate = nextRange?.from ? toDateInputValue(nextRange.from) : "";
-    const endDate = nextRange?.to ? toDateInputValue(nextRange.to) : "";
+    updateTouchPreviewRange(undefined);
+    selectSingleCalendarDay(normalizeDate(day));
+  }
 
-    setDraft((current) => ({ ...current, startDate, endDate }));
+  function handleCalendarTouchStart(day: Date) {
+    if (isBeforeToday(day)) {
+      touchRangeAnchorRef.current = null;
+      return;
+    }
+
+    const normalizedDay = normalizeDate(day);
+    touchRangeAnchorRef.current = normalizedDay;
+    updateTouchPreviewRange({ from: normalizedDay, to: normalizedDay });
+  }
+
+  function handleCalendarTouchMove(day: Date) {
+    const anchor = touchRangeAnchorRef.current;
+
+    if (!anchor || isBeforeToday(day)) {
+      return;
+    }
+
+    const normalizedDay = normalizeDate(day);
+    const nextRange = normalizeDateRange({ from: anchor, to: normalizedDay });
+    updateTouchPreviewRange(nextRange);
+  }
+
+  function handleCalendarTouchEnd(day: Date | null, moved: boolean) {
+    const anchor = touchRangeAnchorRef.current;
+    const normalizedDay = day && !isBeforeToday(day) ? normalizeDate(day) : null;
+
+    if (!moved && normalizedDay) {
+      selectSingleCalendarDay(normalizedDay);
+    } else if (moved) {
+      const committedRange =
+        anchor && normalizedDay
+          ? normalizeDateRange({ from: anchor, to: normalizedDay })
+          : touchPreviewRangeRef.current;
+
+      if (committedRange?.from) {
+        applyCalendarRange(committedRange);
+      }
+    }
+
+    touchRangeAnchorRef.current = null;
+    updateTouchPreviewRange(undefined);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -145,7 +223,7 @@ export function CreateEventForm({ variant = "standalone" }: CreateEventFormProps
         setErrors({ submit: payload?.error?.message ?? "이벤트를 만들지 못했습니다." });
         return;
       }
-      window.location.assign(`/events/${payload.id}`);
+      window.location.assign(`/?${encodeURIComponent(payload.id)}`);
     } catch {
       setErrors({ submit: "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요." });
     } finally {
@@ -156,82 +234,38 @@ export function CreateEventForm({ variant = "standalone" }: CreateEventFormProps
   return (
     <main style={styles.page}>
       <section style={styles.shell}>
-        <div style={{ ...styles.sidebar, ...(variant === "home" ? styles.homeSidebar : null) }}>
-          <p style={styles.eyebrow}>Create Event</p>
-          <h1 style={styles.title}>언제만나</h1>
-          <p style={styles.tagline}>모두의 가능한 시간을 한 번에</p>
-          {variant === "standalone" ? (
-            <a href="/" style={styles.backLink}>
-              홈으로 돌아가기
-            </a>
-          ) : null}
-        </div>
+        <CreateEventFormHeader variant={variant} />
 
         <form style={styles.formCard} onSubmit={handleSubmit}>
-          <label style={styles.field}>
-            <span style={styles.label}>이벤트 이름</span>
-            <input
-              ref={nameInputRef}
-              style={styles.input}
-              value={draft.name}
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              placeholder="예: 팀 주간 회고"
-            />
-            {errors.name ? <span style={styles.error}>{errors.name}</span> : null}
-          </label>
+          <NameField
+            inputRef={nameInputRef}
+            value={draft.name}
+            error={errors.name}
+            onChange={(next) => setDraft((current) => ({ ...current, name: next }))}
+          />
 
-          <section ref={dateSectionRef} style={styles.pickerSection} tabIndex={-1}>
-            <div style={styles.sectionHeader}>
-              <div>
-                <p style={styles.sectionEyebrow}>Date Range</p>
-                <h2 style={styles.sectionTitle}>날짜범위 선택</h2>
-              </div>
-            </div>
-            <Card style={styles.calendarCard}>
-              <CardContent style={styles.calendarCardContent}>
-                <div style={styles.calendarScrollArea}>
-                  <Calendar
-                    mode="range"
-                    defaultMonth={selectedDateRange?.from}
-                    selected={selectedDateRange}
-                    onDayClick={handleCalendarDayClick}
-                    numberOfMonths={1}
-                    showOutsideDays={false}
-                    disabled={isBeforeToday}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-            <p style={styles.inlineHint}>시작일과 종료일만 선택하고, 중간 날짜는 자동으로 범위로 처리됩니다.</p>
-            {errors.startDate || errors.endDate ? (
-              <span style={styles.error}>{errors.startDate ?? errors.endDate}</span>
-            ) : null}
-          </section>
+          <div style={styles.sectionDivider} />
 
-          <section ref={timeSectionRef} style={styles.pickerSection} tabIndex={-1}>
-            <div style={styles.sectionHeader}>
-              <div>
-                <p style={styles.sectionEyebrow}>Time Range</p>
-                <h2 style={styles.sectionTitle}>시간범위 선택</h2>
-              </div>
-            </div>
-            <div style={styles.timePickerGrid}>
-              <TimeWheelPicker
-                label="시작 시간"
-                value={draft.startTime}
-                onChange={(next) => setDraft((current) => applyTimeSelection(current, "start", next))}
-              />
-              <TimeWheelPicker
-                label="종료 시간"
-                value={draft.endTime}
-                onChange={(next) => setDraft((current) => applyTimeSelection(current, "end", next))}
-              />
-            </div>
-            <p style={styles.inlineHint}>각 컬럼은 독립적으로 스크롤되며 멈출 때 가장 가까운 값으로 맞춰집니다.</p>
-            {errors.startTime || errors.endTime ? (
-              <span style={styles.error}>{errors.startTime ?? errors.endTime}</span>
-            ) : null}
-          </section>
+          <DateRangeSection
+            sectionRef={dateSectionRef}
+            selectedRange={displayedDateRange}
+            error={errors.startDate ?? errors.endDate}
+            onDayClick={handleCalendarDayClick}
+            onTouchStart={handleCalendarTouchStart}
+            onTouchMove={handleCalendarTouchMove}
+            onTouchEnd={handleCalendarTouchEnd}
+          />
+
+          <div style={styles.sectionDivider} />
+
+          <TimeRangeSection
+            sectionRef={timeSectionRef}
+            startTime={draft.startTime}
+            endTime={draft.endTime}
+            error={errors.startTime ?? errors.endTime}
+            onStartTimeChange={(next) => setDraft((current) => applyTimeSelection(current, "start", next))}
+            onEndTimeChange={(next) => setDraft((current) => applyTimeSelection(current, "end", next))}
+          />
 
           {errors.submit ? <p style={styles.submitError}>{errors.submit}</p> : null}
 
@@ -244,48 +278,275 @@ export function CreateEventForm({ variant = "standalone" }: CreateEventFormProps
   );
 }
 
+function CreateEventFormHeader({ variant }: FormHeaderProps) {
+  return (
+    <ScreenHeader
+      variant="brandBand"
+      title="이벤트 만들기"
+      align="center"
+      topInset={variant === "home"}
+      backHref={variant === "standalone" ? "/" : undefined}
+    />
+  );
+}
+
+function NameField({ inputRef, value, error, onChange }: NameFieldProps) {
+  return (
+    <label style={styles.field}>
+      <span style={styles.label}>이름</span>
+      <input
+        ref={inputRef}
+        style={styles.input}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="약속 이름을 입력하세요"
+      />
+      {error ? <span style={styles.error}>{error}</span> : null}
+    </label>
+  );
+}
+
+function DateRangeSection({
+  sectionRef,
+  selectedRange,
+  error,
+  onDayClick,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+}: DateRangeSectionProps) {
+  return (
+    <section ref={sectionRef} style={styles.pickerSection} tabIndex={-1}>
+      <div style={styles.sectionHeader}>
+        <h2 style={styles.sectionTitle}>약속 날짜</h2>
+      </div>
+      <Card style={styles.calendarCard}>
+        <CardContent style={styles.calendarCardContent}>
+          <div style={styles.calendarScrollArea}>
+            <Calendar
+              mode="range"
+              defaultMonth={selectedRange?.from}
+              selected={selectedRange}
+              onDaySelect={onDayClick}
+              onRangeTouchStart={onTouchStart}
+              onRangeTouchMove={onTouchMove}
+              onRangeTouchEnd={onTouchEnd}
+              numberOfMonths={1}
+              disabled={isBeforeToday}
+            />
+          </div>
+        </CardContent>
+      </Card>
+      {error ? <span style={styles.error}>{error}</span> : null}
+    </section>
+  );
+}
+
+function TimeRangeSection({
+  sectionRef,
+  startTime,
+  endTime,
+  error,
+  onStartTimeChange,
+  onEndTimeChange,
+}: TimeRangeSectionProps) {
+  return (
+    <section ref={sectionRef} style={styles.pickerSection} tabIndex={-1}>
+      <div style={styles.sectionHeader}>
+        <h2 style={styles.sectionTitle}>약속 시간</h2>
+      </div>
+      <div style={styles.timePickerGrid}>
+        <TimeWheelPicker label="시작" value={startTime} onChange={onStartTimeChange} />
+        <div aria-hidden="true" style={styles.waveSeparator}>
+          ~
+        </div>
+        <TimeWheelPicker label="종료" value={endTime} onChange={onEndTimeChange} />
+      </div>
+      {error ? <span style={styles.error}>{error}</span> : null}
+    </section>
+  );
+}
+
 function TimeWheelPicker({ label, value, onChange }: TimeWheelPickerProps) {
+  const meridiemRef = useRef<HTMLDivElement | null>(null);
   const hourRef = useRef<HTMLDivElement | null>(null);
+  const meridiemTimeoutRef = useRef<number | null>(null);
   const hourTimeoutRef = useRef<number | null>(null);
-  const selectedHour = useMemo(() => toHourValue(value), [value]);
+  const meridiemFrameRef = useRef<number | null>(null);
+  const hourFrameRef = useRef<number | null>(null);
+  const selectedValue = useMemo(() => toMeridiemAndHourValue(value), [value]);
+  const selectedHourSlotIndex = useMemo(() => getHourSlotIndex(value), [value]);
+  const [activeWheelSelection, setActiveWheelSelection] = useState<WheelSelectionState>(() => ({
+    meridiemIndex: MERIDIEM_OPTIONS.indexOf(selectedValue.meridiem),
+    hourIndex: selectedHourSlotIndex,
+  }));
+  const activeWheelSelectionRef = useRef(activeWheelSelection);
+  const lastEmittedValueRef = useRef(value);
+  const shouldSyncScrollPositionRef = useRef(true);
+  const pendingScrollBehaviorRef = useRef<WheelScrollBehaviorState>({ meridiem: "auto", hour: "auto" });
 
   useEffect(() => {
-    scrollColumnToValue(hourRef.current, HOUR_OPTIONS.indexOf(selectedHour));
-  }, [selectedHour]);
+    activeWheelSelectionRef.current = activeWheelSelection;
+  }, [activeWheelSelection]);
+
+  useEffect(() => {
+    lastEmittedValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    const currentMeridiem = MERIDIEM_OPTIONS[activeWheelSelectionRef.current.meridiemIndex];
+    const currentHour = HOUR_SLOT_OPTIONS[activeWheelSelectionRef.current.hourIndex];
+
+    if (currentMeridiem === selectedValue.meridiem && currentHour === selectedValue.hour) {
+      return;
+    }
+
+    pendingScrollBehaviorRef.current = { meridiem: "auto", hour: "auto" };
+    setActiveWheelSelection({
+      meridiemIndex: MERIDIEM_OPTIONS.indexOf(selectedValue.meridiem),
+      hourIndex: selectedHourSlotIndex,
+    });
+  }, [selectedHourSlotIndex, selectedValue.hour, selectedValue.meridiem]);
+
+  useEffect(() => {
+    if (!shouldSyncScrollPositionRef.current) {
+      shouldSyncScrollPositionRef.current = true;
+      return;
+    }
+
+    const { meridiem, hour } = pendingScrollBehaviorRef.current;
+    scrollColumnToValue(meridiemRef.current, activeWheelSelection.meridiemIndex, meridiem);
+    scrollColumnToValue(hourRef.current, activeWheelSelection.hourIndex, hour);
+    pendingScrollBehaviorRef.current = { meridiem: "auto", hour: "auto" };
+  }, [activeWheelSelection.hourIndex, activeWheelSelection.meridiemIndex]);
 
   useEffect(() => {
     return () => {
+      if (meridiemTimeoutRef.current !== null) window.clearTimeout(meridiemTimeoutRef.current);
       if (hourTimeoutRef.current !== null) window.clearTimeout(hourTimeoutRef.current);
+      if (meridiemFrameRef.current !== null) window.cancelAnimationFrame(meridiemFrameRef.current);
+      if (hourFrameRef.current !== null) window.cancelAnimationFrame(hourFrameRef.current);
     };
   }, []);
 
+  function updateWheelSelection(nextSelection: WheelSelectionState, frameRef?: MutableRefObject<number | null>) {
+    activeWheelSelectionRef.current = nextSelection;
+    shouldSyncScrollPositionRef.current = !frameRef;
+
+    if (!frameRef) {
+      setActiveWheelSelection(nextSelection);
+      return;
+    }
+
+    if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
+    frameRef.current = window.requestAnimationFrame(() => {
+      setActiveWheelSelection(activeWheelSelectionRef.current);
+      frameRef.current = null;
+    });
+  }
+
+  function emitTimeValue(nextSelection: WheelSelectionState) {
+    const nextValue = fromHourSlotIndex(nextSelection.hourIndex);
+
+    if (lastEmittedValueRef.current === nextValue) {
+      return;
+    }
+
+    lastEmittedValueRef.current = nextValue;
+    onChange(nextValue);
+  }
+
+  function handleMeridiemScroll(event: UIEvent<HTMLDivElement>) {
+    const liveMeridiemIndex = getScrollAlignedWheelIndex(event.currentTarget.scrollTop, MERIDIEM_OPTIONS.length);
+    const liveSelection = {
+      ...activeWheelSelectionRef.current,
+      meridiemIndex: liveMeridiemIndex,
+    };
+
+    updateWheelSelection(liveSelection, meridiemFrameRef);
+
+    scheduleSnap(event.currentTarget, MERIDIEM_OPTIONS.length, meridiemTimeoutRef, (nextIndex) => {
+      const nextHourIndex = nextIndex * HOUR_OPTIONS.length + (activeWheelSelectionRef.current.hourIndex % HOUR_OPTIONS.length);
+      pendingScrollBehaviorRef.current = {
+        meridiem: "smooth",
+        hour: "smooth",
+      };
+      const nextSelection = {
+        meridiemIndex: nextIndex,
+        hourIndex: nextHourIndex,
+      };
+      updateWheelSelection(nextSelection);
+      emitTimeValue(nextSelection);
+    });
+  }
+
   function handleHourScroll(event: UIEvent<HTMLDivElement>) {
-    scheduleSnap(event.currentTarget, HOUR_OPTIONS, hourTimeoutRef, (next) => {
-      onChange(fromHourValue(next));
+    const element = event.currentTarget;
+    const liveHourIndex = getScrollAlignedWheelIndex(element.scrollTop, HOUR_SLOT_OPTIONS.length);
+    const liveSelection = {
+      ...activeWheelSelectionRef.current,
+      hourIndex: liveHourIndex,
+    };
+
+    updateWheelSelection(liveSelection, hourFrameRef);
+
+    scheduleSnap(element, HOUR_SLOT_OPTIONS.length, hourTimeoutRef, (nextIndex) => {
+      const nextMeridiemIndex = getMeridiemIndexFromHourSlot(nextIndex);
+      pendingScrollBehaviorRef.current = {
+        meridiem: nextMeridiemIndex !== MERIDIEM_OPTIONS.indexOf(selectedValue.meridiem) ? "smooth" : "auto",
+        hour: "smooth",
+      };
+      const nextSelection = {
+        meridiemIndex: nextMeridiemIndex,
+        hourIndex: nextIndex,
+      };
+      updateWheelSelection(nextSelection);
+      emitTimeValue(nextSelection);
     });
   }
 
   return (
     <div style={styles.wheelPicker}>
       <div style={styles.wheelPickerHeader}>
-        <span style={styles.label}>{label}</span>
+        <span style={styles.wheelPickerLabel}>{label}</span>
       </div>
       <div style={styles.wheelPickerBody}>
         <div style={styles.wheelHighlight} />
         <div style={styles.wheelFadeTop} />
         <div style={styles.wheelFadeBottom} />
 
-        <div ref={hourRef} style={styles.wheelColumn} onScroll={handleHourScroll} data-wheel-column={`${label}-hour`}>
+        <div
+          ref={meridiemRef}
+          style={styles.wheelColumn}
+          onScroll={handleMeridiemScroll}
+          data-wheel-column={`${label}-meridiem`}
+        >
           <div style={styles.wheelSpacer} />
-          {HOUR_OPTIONS.map((option) => (
+          {MERIDIEM_OPTIONS.map((option, index) => (
             <div
-              key={option}
+              key={`${option}-${index}`}
               style={{
                 ...styles.wheelItem,
-                ...(selectedHour === option ? styles.wheelItemActive : styles.wheelItemInactive),
+                ...getWheelItemStateStyle(Math.abs(activeWheelSelection.meridiemIndex - index)),
               }}
             >
-              {formatKoreanHour(option)}
+              {option}
+            </div>
+          ))}
+          <div style={styles.wheelSpacer} />
+        </div>
+
+        <div ref={hourRef} style={styles.wheelColumn} onScroll={handleHourScroll} data-wheel-column={`${label}-hour`}>
+          <div style={styles.wheelSpacer} />
+          {HOUR_SLOT_OPTIONS.map((option, index) => (
+            <div
+              key={`${option}-${index}`}
+              style={{
+                ...styles.wheelItem,
+                ...getWheelItemStateStyle(Math.abs(activeWheelSelection.hourIndex - index)),
+              }}
+            >
+              {option}
             </div>
           ))}
           <div style={styles.wheelSpacer} />
@@ -298,7 +559,6 @@ function TimeWheelPicker({ label, value, onChange }: TimeWheelPickerProps) {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    padding: "20px 12px 88px",
     overflowX: "hidden",
     background:
       "linear-gradient(180deg, rgba(231,238,252,0.9) 0%, rgba(255,255,255,1) 36%), radial-gradient(circle at top right, rgba(244,226,210,0.7), transparent 25%)",
@@ -308,94 +568,55 @@ const styles: Record<string, CSSProperties> = {
     margin: "0 auto",
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr)",
-    gap: 16,
-  },
-  sidebar: {
-    padding: 22,
-    borderRadius: 26,
-    background: "#13233f",
-    color: "#f8fbff",
-  },
-  homeSidebar: {
-    paddingBottom: 20,
-  },
-  eyebrow: {
-    margin: 0,
-    fontSize: 12,
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-    color: "#b7c6e5",
-  },
-  title: {
-    margin: "10px 0 8px",
-    fontSize: "clamp(2rem, 4vw, 3.4rem)",
-    lineHeight: 1.05,
-    fontWeight: 800,
-  },
-  tagline: {
-    margin: 0,
-    fontSize: "clamp(1rem, 2.8vw, 1.2rem)",
-    lineHeight: 1.5,
-    color: "#c8d4ea",
-    maxWidth: 260,
-  },
-  backLink: {
-    display: "inline-flex",
-    marginTop: 18,
-    color: "#ffffff",
-    textDecoration: "none",
-    fontWeight: 700,
   },
   formCard: {
-    padding: 20,
-    borderRadius: 28,
+    padding: "22px 18px 20px",
     background: "#ffffff",
     border: "1px solid #dfe5ef",
-    boxShadow: "0 22px 48px rgba(18, 31, 54, 0.08)",
+    borderTop: 0,
   },
   field: {
     display: "grid",
     gap: 8,
-    marginBottom: 18,
   },
   label: {
+    fontSize: 14,
     fontWeight: 700,
+    lineHeight: 1.4,
     color: "#182845",
+    textAlign: "left",
   },
   input: {
     minHeight: 48,
     borderRadius: 14,
     border: "1px solid #cad3e2",
     padding: "0 14px",
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 1.5,
     width: "100%",
     background: "#ffffff",
+    textAlign: "left",
+  },
+  sectionDivider: {
+    height: 18,
   },
   pickerSection: {
     display: "grid",
     gap: 12,
-    marginBottom: 24,
   },
   sectionHeader: {
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
-    gap: 12,
-  },
-  sectionEyebrow: {
-    margin: 0,
-    fontSize: 11,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
-    color: "#61738d",
+    display: "block",
   },
   sectionTitle: {
-    margin: "6px 0 0",
-    fontSize: 22,
+    margin: 0,
+    fontSize: 20,
+    lineHeight: 1.3,
+    fontWeight: 800,
     color: "#182845",
+    textAlign: "left",
   },
   calendarCard: {
-    borderRadius: 20,
+    borderRadius: 22,
     overflow: "hidden",
     width: "100%",
   },
@@ -409,27 +630,46 @@ const styles: Record<string, CSSProperties> = {
   },
   timePickerGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 12,
+    gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
+    gap: 10,
+    alignItems: "center",
+  },
+  waveSeparator: {
+    alignSelf: "start",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: WHEEL_ITEM_HEIGHT,
+    marginTop: WAVE_SEPARATOR_OFFSET,
+    color: "#182845",
+    fontSize: 22,
+    fontWeight: 700,
   },
   wheelPicker: {
     display: "grid",
-    gap: 10,
+    gap: WHEEL_PICKER_GAP,
   },
   wheelPickerHeader: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+  },
+  wheelPickerLabel: {
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.4,
+    color: "#182845",
+    textAlign: "center",
   },
   wheelPickerBody: {
     position: "relative",
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr)",
-    gap: 0,
-    padding: 8,
+    gridTemplateColumns: "0.95fr 1.05fr",
+    gap: 6,
+    padding: `${WHEEL_BODY_VERTICAL_PADDING}px 10px`,
     borderRadius: 18,
     border: "1px solid #cad3e2",
-    background: "#fbfcfe",
+    background: "#ffffff",
     overflow: "hidden",
   },
   wheelColumn: {
@@ -437,6 +677,7 @@ const styles: Record<string, CSSProperties> = {
     height: WHEEL_VIEWPORT_HEIGHT,
     overflowY: "auto",
     overscrollBehavior: "contain",
+    scrollPaddingBlock: WHEEL_CENTER_OFFSET,
     scrollSnapType: "y mandatory",
     scrollbarWidth: "none",
     msOverflowStyle: "none",
@@ -454,23 +695,35 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     scrollSnapAlign: "center",
-    fontSize: 16,
+    fontSize: 15,
+    lineHeight: 1.4,
     fontWeight: 700,
+    letterSpacing: "-0.01em",
     transition: "opacity 120ms ease, transform 120ms ease, color 120ms ease",
   },
   wheelItemActive: {
     opacity: 1,
-    transform: "scale(1.02)",
-    color: "#ffffff",
+    transform: "scale(1)",
+    color: "#182845",
     fontWeight: 800,
-    background: "#2f6df6",
-    borderRadius: 12,
-    boxShadow: "0 10px 20px rgba(47, 109, 246, 0.18)",
   },
-  wheelItemInactive: {
-    opacity: 0.34,
-    transform: "scale(0.94)",
+  wheelItemNear: {
+    opacity: 0.72,
+    transform: "scale(0.985)",
+    color: "#44546d",
+    fontWeight: 700,
+  },
+  wheelItemMid: {
+    opacity: 0.48,
+    transform: "scale(0.955)",
+    color: "#6d7d94",
+    fontWeight: 700,
+  },
+  wheelItemFar: {
+    opacity: 0.24,
+    transform: "scale(0.92)",
     color: "#7a889d",
+    fontWeight: 700,
   },
   wheelHighlight: {
     position: "absolute",
@@ -480,9 +733,8 @@ const styles: Record<string, CSSProperties> = {
     height: WHEEL_ITEM_HEIGHT,
     transform: "translateY(-50%)",
     borderRadius: 14,
-    background: "rgba(47, 109, 246, 0.08)",
-    border: "1px solid rgba(47, 109, 246, 0.14)",
-    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.45)",
+    background: "rgba(24, 40, 69, 0.08)",
+    border: "1px solid rgba(24, 40, 69, 0.06)",
     pointerEvents: "none",
     zIndex: 0,
   },
@@ -506,18 +758,15 @@ const styles: Record<string, CSSProperties> = {
     pointerEvents: "none",
     zIndex: 2,
   },
-  inlineHint: {
-    margin: 0,
-    color: "#61738d",
-    lineHeight: 1.6,
-    fontSize: 14,
-  },
   error: {
     color: "#b42318",
     fontSize: 13,
+    lineHeight: 1.5,
   },
   submitError: {
     color: "#b42318",
+    fontSize: 13,
+    lineHeight: 1.5,
     margin: "16px 0 0",
   },
   submitButton: {
@@ -526,13 +775,30 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     borderRadius: 999,
     border: 0,
-    background: "#0f3d91",
+    background: "#1f5fd6",
     color: "#ffffff",
     fontWeight: 700,
     fontSize: 16,
+    lineHeight: 1,
     cursor: "pointer",
   },
 };
+
+function getWheelItemStateStyle(distance: number): CSSProperties {
+  if (distance === 0) {
+    return styles.wheelItemActive;
+  }
+
+  if (distance === 1) {
+    return styles.wheelItemNear;
+  }
+
+  if (distance === 2) {
+    return styles.wheelItemMid;
+  }
+
+  return styles.wheelItemFar;
+}
 
 function parseDateValue(value: string): Date | undefined {
   if (!value) return undefined;
@@ -560,25 +826,10 @@ function isBeforeToday(date: Date): boolean {
   return value < today;
 }
 
-function getNextDateRange(current: DateRange | undefined, day: Date): DateRange {
-  const normalizedDay = normalizeDate(day);
-  if (!current?.from) return { from: normalizedDay, to: undefined };
-  if (!current.to) {
-    const from = normalizeDate(current.from);
-    if (isSameCalendarDay(from, normalizedDay)) return { from: normalizedDay, to: normalizedDay };
-    return isEarlierDay(normalizedDay, from) ? { from: normalizedDay, to: from } : { from, to: normalizedDay };
-  }
-  return { from: normalizedDay, to: undefined };
-}
-
 function normalizeDate(date: Date): Date {
   const next = new Date(date.getTime());
   next.setHours(0, 0, 0, 0);
   return next;
-}
-
-function isSameCalendarDay(left: Date, right: Date): boolean {
-  return normalizeDate(left).getTime() === normalizeDate(right).getTime();
 }
 
 function isEarlierDay(left: Date, right: Date): boolean {
@@ -613,36 +864,73 @@ function focusFirstInvalidField(
   }
 }
 
-function toHourValue(value: string): HourOption {
+function toMeridiemAndHourValue(value: string): { meridiem: MeridiemOption; hour: Hour12Option } {
   const hour = Number(value.slice(0, 2));
-  if (Number.isNaN(hour) || hour === 0) return "24";
-  return String(hour) as HourOption;
+
+  if (Number.isNaN(hour) || hour === 0) {
+    return { meridiem: "오전", hour: "12" };
+  }
+
+  if (hour < 12) {
+    return { meridiem: "오전", hour: String(hour) as Hour12Option };
+  }
+
+  if (hour === 12) {
+    return { meridiem: "오후", hour: "12" };
+  }
+
+  return { meridiem: "오후", hour: String(hour - 12) as Hour12Option };
 }
 
-function fromHourValue(hour: HourOption): string {
-  if (hour === "24") return "00:00";
-  return `${hour.padStart(2, "0")}:00`;
+function fromMeridiemAndHourValue(meridiem: MeridiemOption, hour: Hour12Option): string {
+  const numericHour = Number(hour);
+
+  if (meridiem === "오전") {
+    const hour24 = numericHour === 12 ? 0 : numericHour;
+    return `${String(hour24).padStart(2, "0")}:00`;
+  }
+
+  const hour24 = numericHour === 12 ? 12 : numericHour + 12;
+  return `${String(hour24).padStart(2, "0")}:00`;
 }
 
-function scheduleSnap<T extends string>(
+function getHourSlotIndex(value: string): number {
+  const { meridiem, hour } = toMeridiemAndHourValue(value);
+  return MERIDIEM_OPTIONS.indexOf(meridiem) * HOUR_OPTIONS.length + HOUR_OPTIONS.indexOf(hour);
+}
+
+function getMeridiemIndexFromHourSlot(index: number): number {
+  return index >= HOUR_OPTIONS.length ? 1 : 0;
+}
+
+function fromHourSlotIndex(index: number): string {
+  const meridiem = MERIDIEM_OPTIONS[getMeridiemIndexFromHourSlot(index)];
+  const hour = HOUR_SLOT_OPTIONS[index];
+  return fromMeridiemAndHourValue(meridiem, hour);
+}
+
+function getScrollAlignedWheelIndex(scrollTop: number, wheelLength: number): number {
+  return clamp(Math.floor((scrollTop + WHEEL_ITEM_HEIGHT / 2) / WHEEL_ITEM_HEIGHT), 0, wheelLength - 1);
+}
+
+function scheduleSnap(
   element: HTMLDivElement,
-  options: readonly T[],
+  wheelLength: number,
   timeoutRef: TimeoutRef,
-  onSelect: (next: T) => void,
+  onSelect: (nextIndex: number) => void,
 ) {
   if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
   timeoutRef.current = window.setTimeout(() => {
-    const nextIndex = clamp(Math.round(element.scrollTop / WHEEL_ITEM_HEIGHT), 0, options.length - 1);
-    scrollColumnToValue(element, nextIndex);
-    onSelect(options[nextIndex]);
+    const snappedIndex = getScrollAlignedWheelIndex(element.scrollTop, wheelLength);
+    onSelect(snappedIndex);
   }, 90);
 }
 
-function scrollColumnToValue(element: HTMLDivElement | null, index: number) {
+function scrollColumnToValue(element: HTMLDivElement | null, index: number, behavior: ScrollBehavior = "smooth") {
   if (!element || index < 0) return;
   const targetTop = index * WHEEL_ITEM_HEIGHT;
   if (Math.abs(element.scrollTop - targetTop) < 1) return;
-  element.scrollTo({ top: targetTop, behavior: "smooth" });
+  element.scrollTo({ top: targetTop, behavior });
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -704,14 +992,4 @@ function normalizeDraftTimes(draft: CreateEventDraft): CreateEventDraft {
   }
 
   return draft;
-}
-
-function formatKoreanHour(hour: HourOption): string {
-  const numeric = Number(hour);
-
-  if (numeric >= 1 && numeric <= 11) {
-    return `오전 ${numeric}시`;
-  }
-
-  return `오후 ${numeric}시`;
 }
