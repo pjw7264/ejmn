@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { cp, mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -100,14 +100,41 @@ async function createIsolatedAppDir() {
   await mkdir(tempRoot, { recursive: true });
   const targetDir = await mkdtemp(path.join(tempRoot, "e2e-next-"));
 
-  await cp(path.join(process.cwd(), "app"), path.join(targetDir, "app"), { recursive: true });
   await cp(path.join(process.cwd(), "src"), path.join(targetDir, "src"), { recursive: true });
   await cp(path.join(process.cwd(), "package.json"), path.join(targetDir, "package.json"));
   await cp(path.join(process.cwd(), "package-lock.json"), path.join(targetDir, "package-lock.json"));
   await cp(path.join(process.cwd(), "tsconfig.json"), path.join(targetDir, "tsconfig.json"));
   await cp(path.join(process.cwd(), "next.config.ts"), path.join(targetDir, "next.config.ts"));
-  await cp(path.join(process.cwd(), "next-env.d.ts"), path.join(targetDir, "next-env.d.ts"));
-  await symlink(path.join(process.cwd(), "node_modules"), path.join(targetDir, "node_modules"), "junction");
+  await mkdir(path.join(targetDir, "app"), { recursive: true });
+  await cp(path.join(process.cwd(), "app", "globals.css"), path.join(targetDir, "app", "globals.css"));
+  await cp(path.join(process.cwd(), "app", "layout.tsx"), path.join(targetDir, "app", "layout.tsx"));
+  await writeFile(
+    path.join(targetDir, "next-env.d.ts"),
+    [
+      '/// <reference types="next" />',
+      '/// <reference types="next/image-types/global" />',
+      "",
+      "// NOTE: This file should not be edited",
+      "// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    path.join(targetDir, "app", "page.tsx"),
+    [
+      'import { AvailabilityComposer } from "../src/components/availability-composer.js";',
+      "",
+      "export default function Page() {",
+      "  return <AvailabilityComposer />;",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  await symlink(
+    path.join(process.cwd(), "node_modules"),
+    path.join(targetDir, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
 
   isolatedAppDir = targetDir;
 }
@@ -115,9 +142,22 @@ async function createIsolatedAppDir() {
 async function startDevServer() {
   const port = await getFreePort();
   await createIsolatedAppDir();
-  const nextBin = path.join(isolatedAppDir, "node_modules", ".bin", "next.cmd");
   serverLogs = "";
-  serverProcess = spawn("cmd.exe", ["/c", nextBin, "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
+  const command =
+    process.platform === "win32" ? "cmd.exe" : path.join(isolatedAppDir, "node_modules", ".bin", "next");
+  const args =
+    process.platform === "win32"
+      ? [
+          "/c",
+          path.join(isolatedAppDir, "node_modules", ".bin", "next.cmd"),
+          "dev",
+          "--hostname",
+          "127.0.0.1",
+          "--port",
+          String(port),
+        ]
+      : ["dev", "--hostname", "127.0.0.1", "--port", String(port)];
+  serverProcess = spawn(command, args, {
     cwd: isolatedAppDir,
     env: {
       ...process.env,
@@ -166,6 +206,8 @@ async function dragBetween(page: Page, fromKey: string, toKey: string) {
   await page.mouse.move(fromX, fromY);
   await page.mouse.down();
   await page.mouse.move(toX, toY, { steps: 12 });
+  await page.mouse.move(toX, toY);
+  await delay(50);
   await page.mouse.up();
 }
 
@@ -252,13 +294,20 @@ test("브라우저에서 선택된 슬롯을 드래그하면 직사각형 전체
   const page = await openPage();
 
   try {
-    await dragBetween(page, "wed-7", "fri-7");
-    await expectCount(page, 2);
-    await expectSlotColor(page, "wed-7", UNAVAILABLE_COLOR);
-    await expectSlotColor(page, "thu-7", UNAVAILABLE_COLOR);
-    await expectSlotColor(page, "fri-7", UNAVAILABLE_COLOR);
+    await dragBetween(page, "tue-10", "thu-11");
+    await expectCount(page, 11);
+    await dragBetween(page, "tue-10", "thu-11");
+    await expectCount(page, 5);
+    await expectSlotColor(page, "tue-10", UNAVAILABLE_COLOR);
+    await expectSlotColor(page, "wed-10", UNAVAILABLE_COLOR);
+    await expectSlotColor(page, "thu-11", UNAVAILABLE_COLOR);
     const summary = await page.locator("li").allTextContents();
-    assert.deepEqual(summary, ["03/22 일 10:00 AM - 11:00 AM"]);
+    assert.deepEqual(summary, [
+      "03/22 일 10:00 AM - 11:00 AM",
+      "03/25 수 12:30 PM - 1:00 PM",
+      "03/26 목 12:30 PM - 1:00 PM",
+      "03/27 금 12:30 PM - 1:00 PM",
+    ]);
   } finally {
     await page.close();
   }

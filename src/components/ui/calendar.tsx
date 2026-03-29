@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { addMonths } from "date-fns";
 import { ko } from "date-fns/locale";
 import { type CSSProperties, useEffect, useRef, useState } from "react";

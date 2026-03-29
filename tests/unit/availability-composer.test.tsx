@@ -122,7 +122,7 @@ function setup(): TestContext {
   }
 
   function getSelectedCount(): number {
-    const value = container.querySelector("p[style*='font-size: 34']");
+    const value = container.querySelector("[data-selected-count]");
     assert.ok(value, "selected count element should exist");
     return Number.parseInt(value.textContent ?? "", 10);
   }
